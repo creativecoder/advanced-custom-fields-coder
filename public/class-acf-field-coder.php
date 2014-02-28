@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name.
+ * ACF Field Code
  *
- * @package   acf-field-code
+ * @package   advanced-custom-fields-coder
  * @author    Grant Kinney <grant@verismo.io>
  * @license   MIT
  * @link      http://wordpress.org
@@ -18,10 +18,10 @@
  *
  * @TODO: Rename this class to a proper name for your plugin.
  *
- * @package ACF_Field_Code
+ * @package ACF_Field_Coder
  * @author  Grant Kinney <grant@verismo.io>
  */
-class ACF_Field_Code {
+class ACF_Field_Coder {
 
 	/**
 	 * Plugin version, used for cache-busting of style and script file references.
@@ -44,7 +44,7 @@ class ACF_Field_Code {
 	 *
 	 * @var      string
 	 */
-	protected $plugin_slug = 'acf-field-code';
+	protected $plugin_slug = 'advanced-custom-fields-coder';
 
 	/**
 	 * Instance of this class.
@@ -230,9 +230,31 @@ class ACF_Field_Code {
 	 * Fired for each blog when the plugin is activated.
 	 *
 	 * @since    1.0.0
+	 * @todo     Move this function elsewhere, to prevent "unexpected output" warning during plugin activation
 	 */
-	private static function single_activate() {
-		// @TODO: Define activation functionality here
+	public function single_activate() {
+		
+		// create file to store acf field code, if it hasn't already been created
+		if ( ! file_exists( plugin_dir_path( __FILE__ ) . 'includes/acf-fields.php') ) {
+			$handle = fopen( plugin_dir_path( __FILE__ ) . 'includes/acf-fields.php', 'w' ) or die( "Unable to create acf-fields.php" );
+			$text = '<?php
+/**
+ * ACF Field Code.
+ *
+ * @package   acf-field-code
+ * @author    Grant Kinney <grant@verismo.io>
+ * @license   MIT
+ * @link      http://wordpress.org
+ * @copyright 2014 Grant Kinney
+ */
+
+if(function_exists(\'register_field_group\')) {
+}
+';
+
+			fwrite($handle, $text) or die("Could not write to acf-fields.php");
+			fclose($handle);
+		}
 	}
 
 	/**

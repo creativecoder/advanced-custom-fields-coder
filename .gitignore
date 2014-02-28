@@ -46,3 +46,7 @@ dist
 .rvmrc
 .vagrant
 vendor
+
+# ACF Fields File #
+###################
+acf-fields.php
