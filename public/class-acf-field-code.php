@@ -2,11 +2,11 @@
 /**
  * Plugin Name.
  *
- * @package   Plugin_Name
- * @author    Your Name <email@example.com>
- * @license   GPL-2.0+
- * @link      http://example.com
- * @copyright 2014 Your Name or Company Name
+ * @package   acf-field-code
+ * @author    Grant Kinney <grant@verismo.io>
+ * @license   MIT
+ * @link      http://wordpress.org
+ * @copyright 2014 Grant Kinney
  */
 
 /**
@@ -18,10 +18,10 @@
  *
  * @TODO: Rename this class to a proper name for your plugin.
  *
- * @package Plugin_Name
- * @author  Your Name <email@example.com>
+ * @package ACF_Field_Code
+ * @author  Grant Kinney <grant@verismo.io>
  */
-class Plugin_Name {
+class ACF_Field_Code {
 
 	/**
 	 * Plugin version, used for cache-busting of style and script file references.
@@ -33,8 +33,6 @@ class Plugin_Name {
 	const VERSION = '1.0.0';
 
 	/**
-	 * @TODO - Rename "plugin-name" to the name your your plugin
-	 *
 	 * Unique identifier for your plugin.
 	 *
 	 *
@@ -46,7 +44,7 @@ class Plugin_Name {
 	 *
 	 * @var      string
 	 */
-	protected $plugin_slug = 'plugin-name';
+	protected $plugin_slug = 'acf-field-code';
 
 	/**
 	 * Instance of this class.
