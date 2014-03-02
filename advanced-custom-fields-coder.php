@@ -18,7 +18,7 @@
  * Version:           1.0.0
  * Author:            Grant Kinney
  * Author URI:        http://verismo.io
- * Text Domain:       advanced-custom-fields-coder
+ * Text Domain:       acf-coder
  * License:           MIT
  * License URI:       http://mit-license.org/
  * Domain Path:       /languages
@@ -30,11 +30,17 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
+// Cache plugin directory
+define( 'ACF_FIELD_CODE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+
 /*----------------------------------------------------------------------------*
  * Debugging
  *----------------------------------------------------------------------------*/
 
 if ( 1 == WP_LOCAL_SERVER ) {
+	require_once( 'includes/ChromePHP.php');
+	ob_start();
+
 	if(!function_exists('log_me')){
 		function log_me( $message ) {
 			if( is_array( $message ) || is_object( $message ) ){
@@ -47,18 +53,19 @@ if ( 1 == WP_LOCAL_SERVER ) {
 }
 
 /*----------------------------------------------------------------------------*
+ * Tools includes
+ *----------------------------------------------------------------------------*/
+require_once( ACF_FIELD_CODE_PLUGIN_DIR . 'includes/PHP-Parser/lib/bootstrap.php' );
+ini_set('xdebug.max_nesting_level', 2000);
+$parser        = new PhpParser\Parser(new PhpParser\Lexer);
+$traverser     = new PhpParser\NodeTraverser;
+$prettyPrinter = new PhpParser\PrettyPrinter\Standard;
+
+/*----------------------------------------------------------------------------*
  * Public-Facing Functionality
  *----------------------------------------------------------------------------*/
 
-require_once( plugin_dir_path( __FILE__ ) . 'public/class-acf-field-coder.php' );
-
-/*----------------------------------------------------------------------------*
- * Register acf fields programmatically
- *----------------------------------------------------------------------------*/
-
-if ( file_exists( plugin_dir_path( __FILE__ ) . 'public/includes/acf-fields.php') )  {
-	require_o nce( plugin_dir_path( __FILE__ ) . 'public/includes/acf-fields.php' );
-}
+require_once( ACF_FIELD_CODE_PLUGIN_DIR . 'public/class-acf-field-coder.php' );
 
 /*
  * Register hooks that are fired when the plugin is activated or deactivated.
@@ -86,7 +93,7 @@ add_action( 'plugins_loaded', array( 'ACF_Field_Coder', 'get_instance' ) );
  */
 if ( is_admin() && ( ! defined( 'DOING_AJAX' ) || ! DOING_AJAX ) ) {
 
-	require_once( plugin_dir_path( __FILE__ ) . 'admin/class-acf-field-coder-admin.php' );
+	require_once( ACF_FIELD_CODE_PLUGIN_DIR . 'admin/class-acf-field-coder-admin.php' );
 	add_action( 'plugins_loaded', array( 'ACF_Field_Coder_Admin', 'get_instance' ) );
 
 }

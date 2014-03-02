@@ -1,1 +1,3 @@
-/* This stylesheet is used to style the admin option form of the plugin. */
+#acf-col-left .wp-list-table th#field_no {
+	width: 25%;
+}

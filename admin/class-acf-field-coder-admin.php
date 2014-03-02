@@ -37,7 +37,9 @@ class ACF_Field_Coder_Admin {
 	 *
 	 * @var      string
 	 */
-	protected $plugin_screen_hook_suffix = null;
+	protected $plugin_screen_hook_suffix = array();
+
+	public $field_group_post_ids = array();
 
 	/**
 	 * Initialize the plugin by loading admin scripts & styles and adding a
@@ -51,29 +53,30 @@ class ACF_Field_Coder_Admin {
 		 */
 		$plugin = ACF_Field_Coder::get_instance();
 		$this->plugin_slug = $plugin->get_plugin_slug();
+		$this->acf_file_path = $plugin->acf_file_path;
 
-		// Load admin style sheet and JavaScript.
+		$this->plugin_screen_hook_suffix = array( 'acf', 'edit-acf' );
+
+		require_once( plugin_dir_path( __FILE__ ) . 'includes/class-acf-node-visitor.php' );
+
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_styles' ) );
-		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
 
-		// Add the options page and menu item.
-		add_action( 'admin_menu', array( $this, 'add_plugin_admin_menu' ) );
-
-		// Add an action link pointing to the options page.
-		$plugin_basename = plugin_basename( plugin_dir_path( __DIR__ ) . $this->plugin_slug . '.php' );
-		add_filter( 'plugin_action_links_' . $plugin_basename, array( $this, 'add_action_links' ) );
+		add_filter( 'manage_edit-acf_columns', array($this,'acf_edit_columns'), 20, 1 );
+		add_action( 'manage_acf_posts_custom_column' , array($this,'acf_columns_display'), 10, 2 );
 
 		/*
-		 * Define custom functionality.
-		 *
-		 * Read more about actions and filters:
-		 * http://codex.wordpress.org/Plugin_API#Hooks.2C_Actions_and_Filters
+		 * Override built-in acf methods for loading fields in the admin by using a lower filter priority (built-in functions use "5")
 		 */
-		add_action( 'save_post', array( $this, 'save_field_code' ), 5 );
-		add_filter( '@TODO', array( $this, 'filter_method_name' ) );
+		add_filter( 'acf/field_group/get_fields', array($this, 'get_fields'), 10, 2 );
+		add_filter('acf/field_group/get_location', array($this, 'get_location'), 10, 2);
+		add_filter('acf/field_group/get_options', array($this, 'get_options'), 10, 2);
 
-		// global $acf_field_group;
-		// remove_action( 'save_post', array($acf_field_group, 'save_post') );
+
+		add_action( 'admin_init', array( $this, 'sync_acf_posts') );
+
+		add_action( 'save_post', array($this, 'save_field_code'), 5 );
+		add_action( 'wp_insert_post', array($this, 'add_placeholder_meta') );
+
 
 	}
 
@@ -97,6 +100,10 @@ class ACF_Field_Coder_Admin {
 	/**
 	 * Register and enqueue admin-specific style sheet.
 	 *
+	 * @TODO:
+	 *
+	 * - Rename "Plugin_Name" to the name your plugin
+	 *
 	 * @since     1.0.0
 	 *
 	 * @return    null    Return early if no settings page is registered.
@@ -108,85 +115,21 @@ class ACF_Field_Coder_Admin {
 		}
 
 		$screen = get_current_screen();
-		if ( $this->plugin_screen_hook_suffix == $screen->id ) {
+		if ( in_array($screen->id, $this->plugin_screen_hook_suffix, true) ) {
 			wp_enqueue_style( $this->plugin_slug .'-admin-styles', plugins_url( 'assets/css/admin.css', __FILE__ ), array(), ACF_Field_Coder::VERSION );
 		}
 
 	}
 
 	/**
-	 * Register and enqueue admin-specific JavaScript.
+	 * admin_notice()
 	 *
-	 * @since     1.0.0
 	 *
-	 * @return    null    Return early if no settings page is registered.
+	 * 
+	 * @return [type] [description]
+	 * @todo  display an admin notice in the edit.php for acf posts that explains fields are being written programmatically
 	 */
-	public function enqueue_admin_scripts() {
-
-		if ( ! isset( $this->plugin_screen_hook_suffix ) ) {
-			return;
-		}
-
-		$screen = get_current_screen();
-		if ( $this->plugin_screen_hook_suffix == $screen->id ) {
-			wp_enqueue_script( $this->plugin_slug . '-admin-script', plugins_url( 'assets/js/admin.js', __FILE__ ), array( 'jquery' ), ACF_Field_Coder::VERSION );
-		}
-
-	}
-
-	/**
-	 * Register the administration menu for this plugin into the WordPress Dashboard menu.
-	 *
-	 * @since    1.0.0
-	 */
-	public function add_plugin_admin_menu() {
-
-		/*
-		 * Add a settings page for this plugin to the Settings menu.
-		 *
-		 * NOTE:  Alternative menu locations are available via WordPress administration menu functions.
-		 *
-		 *        Administration Menus: http://codex.wordpress.org/Administration_Menus
-		 *
-		 * @TODO:
-		 *
-		 * - Change 'Page Title' to the title of your plugin admin page
-		 * - Change 'Menu Text' to the text for menu item for the plugin settings page
-		 * - Change 'manage_options' to the capability you see fit
-		 *   For reference: http://codex.wordpress.org/Roles_and_Capabilities
-		 */
-		$this->plugin_screen_hook_suffix = add_options_page(
-			__( 'Page Title', $this->plugin_slug ),
-			__( 'Menu Text', $this->plugin_slug ),
-			'manage_options',
-			$this->plugin_slug,
-			array( $this, 'display_plugin_admin_page' )
-		);
-
-	}
-
-	/**
-	 * Render the settings page for this plugin.
-	 *
-	 * @since    1.0.0
-	 */
-	public function display_plugin_admin_page() {
-		include_once( 'views/admin.php' );
-	}
-
-	/**
-	 * Add settings action link to the plugins page.
-	 *
-	 * @since    1.0.0
-	 */
-	public function add_action_links( $links ) {
-
-		return array_merge(
-			array(
-				'settings' => '<a href="' . admin_url( 'options-general.php?page=' . $this->plugin_slug ) . '">' . __( 'Settings', $this->plugin_slug ) . '</a>'
-			),
-			$links
-		);
+	public function admin_notice() {
 
 	}
 
@@ -196,11 +139,207 @@ class ACF_Field_Coder_Admin {
 	 * @since  1.0.0
 	 * @todo   add admin notice if acf plugins file doesn't exist or isn't writable
 	 */
-	public function check_fields_file() {
+	public function check_file() {
 
 	}
 
+	public function acf_edit_columns( $columns ) {
+		// unset acf built-in fields column and add our own, instead
+		unset($columns['fields']);
+		$columns['field_no'] = __('Fields', $this->plugin_slug);
+		return $columns;
+	}
+
+	public function acf_columns_display( $column, $post_id ) {
+			// vars
+			switch ($column) {
+				case "field_no":
+					// vars
+					$count = 0;
+					$fields = $this->get_field_group_by_post_id($post_id)['fields'];
+					if ( is_array($fields) ) {
+						$count = count($fields);
+					}
+
+				echo $count;
+				break;
+			}
+	}
+
 	/**
+	 * get_coded_field_group
+	 *
+	 * Retrieve the coded field group from the acf_register_field_group global
+	 *
+	 * @param  [type] $name [description]
+	 * @return [type]       [description]
+	 */
+	public function get_coded_field_group( $name ) {
+		foreach ( $GLOBALS['acf_register_field_group'] as $field_group ) {
+			if ( $field_group['id'] === $name ){
+				return $field_group;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * get_field_group_by_post_id()
+	 *
+	 * Search fields registered by code, translating post id to field group name and return the field group array
+	 * 
+	 * @param  [type] $post_id [description]
+	 * @return [type]          [description]
+	 */
+	public function get_field_group_by_post_id( $post_id ) {
+		if ( ! isset($this->field_group_post_ids[$post_id]) ) return false;
+		
+		$field_name = $this->field_group_post_ids[$post_id];
+
+		return $this->get_coded_field_group( $field_name );
+	}
+
+	/**
+	 * get_fields()
+	 *
+	 * Returns acf field information from the acf_register_field_group global instead of the database
+	 *
+	 * Run with a filter at lower priority than the built-in method, to override it
+	 * 
+	 * @param  [type] $fields  [description]
+	 * @param  [type] $post_id [description]
+	 * @return [type]          [description]
+	 */
+	public function get_fields( $fields, $post_id ) {
+		$i = 0;
+
+		// Copy fields from global variable
+		$coded_fields = $this->get_field_group_by_post_id($post_id)['fields'];
+		// Set up fields for display
+		if ($coded_fields) {
+			unset($fields);
+			foreach ( $coded_fields as $field ) {
+				$field['order_no'] = $i;
+				$field = apply_filters( 'acf/load_field', false, $field['key'], $post_id );
+				$fields[] = $field;
+				$i += 1;
+			}
+		}
+		return $fields;
+	}
+
+	/**
+	 * get_location()
+	 *
+	 * Returns the field group locations from the acf_register_field_group global instead of the database
+	 * 
+	 * Run with a filter at lower priority than the built-in method, to override it
+	 *
+	 * @param  [type] $location [description]
+	 * @param  [type] $post_id  [description]
+	 * @return [type]           [description]
+	 */
+	public function get_location(	$location, $post_id ) {
+		$groups = array();
+
+		$rules = $this->get_field_group_by_post_id($post_id)['location'];
+
+		if( is_array($rules) ) {
+			foreach( $rules as $rule_set ){
+
+					// add rules to group in an multi-dimensional array by group number and order number
+					$groups[ $rule_set['group_no'] ][ $rule_set['order_no'] ] = $rule_set;
+				
+					// sort rules
+					ksort( $groups[ $rule_set['group_no'] ] );
+			}
+
+			// sort groups
+			ksort( $groups );
+		}
+
+		return $groups;
+	}
+
+	/**
+	 * get_options()
+	 *
+	 * Returns the field group locations from the acf_register_field_group global instead of the database
+	 *
+	 * Run with a filter at lower priority than the built-in method, to override it
+	 *
+	 * @param  [type] $options [description]
+	 * @param  [type] $post_id [description]
+	 * @return [type]          [description]
+	 */
+	public function get_options( $options, $post_id ) {
+
+		return $this->get_field_group_by_post_id($post_id)['options'];
+	}
+
+	/**
+	 * sync_acf_posts()
+	 * 
+	 * Write an acf post to the database for each field registered programmatically, if one doesn't already exist.
+	 * This is needed to be able to use the admin interface for editing field groups
+	 *
+	 * @since  1.0.0
+	 * @return void
+	 */
+	public function sync_acf_posts() {
+		$db_field_group_names = array();
+		
+		// Get all of the current acf fields stored in the database
+		$db_field_groups = get_posts( array(
+			'numberposts' 	=> -1,
+			'post_type' 	=> 'acf',
+			'orderby' 		=> 'menu_order title',
+			'order' 		=> 'asc',
+			'suppress_filters' => false,
+		));
+		if ( $db_field_groups ) {
+			foreach( $db_field_groups as $db_field_group ) {
+				$db_field_group_names[$db_field_group->post_name] = $db_field_group->ID;
+			} // endforeach
+		} // endif
+
+		// Loop through the acf fields registered with code and create an acf post in the database if one doesn't exist
+		foreach ( $GLOBALS['acf_register_field_group'] as $coded_field_group ) {
+			if ( $db_field_group_names && isset($db_field_group_names[$coded_field_group['id']]) ) {
+				$this->field_group_post_ids[$db_field_group_names[$coded_field_group['id']]] = $coded_field_group['id'];
+			} else {
+				$new_id = wp_insert_post( array(
+					'post_title' => $coded_field_group['title'],
+					'post_status' => 'publish',
+					'comment_status' => 'closed',
+					'post_name' => $coded_field_group['id'],
+					'post_type' => 'acf',
+				));
+				$this->field_group_post_ids[$new_id] = $coded_field_group['id'];
+			} // endif
+		} //endforeach
+	}
+
+	/**
+	 * add_placeholder_meta
+	 *
+	 * Add post meta to placeholder posts, so they can be deleted on plugin deactivation
+	 *
+	 * @param [type] $post_id [description]
+	 */
+	public function add_placeholder_meta( $post_id ) {
+		global $post_type;
+		if ( 'acf' === $post_type && in_array($post_id, $this->field_group_post_ids, true) ) {
+			update_post_meta( $post_id = $post_id, $meta_key = 'acf_field_coder_placeholder', $meta_value = 1 );
+		}
+	}
+
+	/**
+	 * save_field_code()
+	 *
+	 * Upon saving an acf post, save the form data and output to a php file, instead of the database
+	 *
+	 * Run with an action set to higher priority than the built-in class, and unsets fields, so that fields are not saved to the database
 	 *
 	 * @since    1.0.0
 	 */
@@ -238,13 +377,13 @@ class ACF_Field_Coder_Admin {
 				$i += 1;
 
 				// set order + key
-				$field['order_no'] = $i;
-				$field['key'] = $field_key;
+				$field_data['order_no'] = $i;
+				$field_data['key'] = $field_key;
 
 				$fields[] = $field_data;
 			}
 
-			// unset( $_POST['fields'] );
+			unset( $_POST['fields'] );
 		}
 
 		// location data
@@ -264,10 +403,21 @@ class ACF_Field_Coder_Admin {
 				}
 			}
 
-			// unset( $_POST['location'] );
+			unset( $_POST['location'] );
 		}
 
 		if ( $fields && $location_rules ) {
+
+			// Check post_title
+			if ( !$_POST['post_title'] ) {
+				$_POST['post_title'] = 'Unnamed Field Group';
+			}
+
+			// Check post_name
+			if ( !$_POST['post_name'] ) {
+				$_POST['post_name'] = 'acf_' . sanitize_title($_POST['post_title']);
+			}
+
 			$field_group = array(
 				'id' => $_POST['post_name'],
 				'title' => $_POST['post_title'],
@@ -277,27 +427,70 @@ class ACF_Field_Coder_Admin {
 				'menu_order' => $_POST['menu_order'],
 			);
 
-			$output = $this->generate_field_php($field_group);
+			unset( $_POST['options'] );
 
-			log_me($output);
-
-			// unset( $_POST['options'] );
+			$this->update_php_file($field_group);
 		}
 	}
 
 	/**
-	 * NOTE:     Filters are points of execution in which WordPress modifies data
-	 *           before saving it or sending it to the browser.
+	 *	update_php_file()
 	 *
-	 *           Filters: http://codex.wordpress.org/Plugin_API#Filters
-	 *           Reference:  http://codex.wordpress.org/Plugin_API/Filter_Reference
-	 *
-	 * @since    1.0.0
+	 * Opens, reads, and updates the php file that registers acf fields programmatically
+	 * 
+	 * @since  1.0.0
+	 * @param  string $code [description]
+	 * @return [type]       [description]
 	 */
-	public function filter_method_name() {
-		// @TODO: Define your filter hook callback here
+	public function update_php_file( $field_group ) {
+		global $parser;
+		global $traverser;
+		global $prettyPrinter;
+
+		$acf_file = fopen( $this->acf_file_path, 'r+b');
+		$code = fread( $acf_file, filesize($this->acf_file_path) );
+
+		// Set the file pointer back to the beginning
+		rewind($acf_file);
+
+		$new_field_code = $this->generate_field_php($field_group);
+
+		if ( $this->get_coded_field_group($field_group['id']) ) {
+			// parse the field and replace the node with an updated register_field_group function call
+			try {
+				// parse
+				$stmts = $parser->parse($code);
+
+				// Set up to traverse the node structure and update with the new settings
+				$traverser->addVisitor( new ACF_Node_Visitor($field_group['id'], $parser->parse($new_field_code)) );
+				// traverse and update node
+				$stmts = $traverser->traverse($stmts);
+
+				// pretty print
+				$code = $prettyPrinter->prettyPrint($stmts);
+			} catch (PhpParser\Error $e) {
+				echo 'Parse Error: ', $e->getMessage();
+			}
+		} else {
+			// Just append the new field
+			$code .= $new_field_code;
+		}
+
+		fwrite( $acf_file, $code );
+		fclose( $acf_file );
 	}
 
+	/**
+	 * generate_field_php()
+	 *
+	 * Generates php code that can register an acf field programmatically
+	 *
+	 * Uses code directly from acf_export->html_php()
+	 *
+	 * @since  1.0.0
+	 * @param  array  $field_group [description]
+	 * @return [type]              [description]
+	 */
 	public function generate_field_php( $field_group = array() ) {
 
 		// create written code
@@ -318,4 +511,4 @@ class ACF_Field_Coder_Admin {
 		return 'register_field_group(' . $php_field_code . ');';
 	}
 
-}
+} // end of class
