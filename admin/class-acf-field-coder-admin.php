@@ -64,19 +64,19 @@ class ACF_Field_Coder_Admin {
 		add_filter( 'manage_edit-acf_columns', array($this,'acf_edit_columns'), 20, 1 );
 		add_action( 'manage_acf_posts_custom_column' , array($this,'acf_columns_display'), 10, 2 );
 
+		add_action( 'admin_notices', array($this, 'admin_notice') );
 		/*
-		 * Override built-in acf methods for loading fields in the admin by using a lower filter priority (built-in functions use "5")
+		 * Override built-in acf methods for loading fields in the admin by using a lower filter priority, which runs after the official acf functions (built-in functions use "5")
 		 */
 		add_filter( 'acf/field_group/get_fields', array($this, 'get_fields'), 10, 2 );
 		add_filter('acf/field_group/get_location', array($this, 'get_location'), 10, 2);
 		add_filter('acf/field_group/get_options', array($this, 'get_options'), 10, 2);
 
+		add_action( 'admin_init', array( $this, 'sync_acf_posts'), 1 );
 
-		add_action( 'admin_init', array( $this, 'sync_acf_posts') );
-
-		add_action( 'save_post', array($this, 'save_field_code'), 5 );
-		add_action( 'wp_insert_post', array($this, 'add_placeholder_meta') );
-
+		add_action( 'save_post_acf', array($this, 'save_field_code'), 5 );
+		add_action( 'wp_insert_post', array($this, 'add_placeholder_meta'), 10, 3 );
+		add_action( 'before_delete_post', array($this, 'delete_acf_post') );
 
 	}
 
@@ -123,14 +123,17 @@ class ACF_Field_Coder_Admin {
 
 	/**
 	 * admin_notice()
-	 *
-	 *
 	 * 
 	 * @return [type] [description]
 	 * @todo  display an admin notice in the edit.php for acf posts that explains fields are being written programmatically
 	 */
 	public function admin_notice() {
-
+		$screen = get_current_screen();
+		if ( in_array($screen->id, $this->plugin_screen_hook_suffix, true) ) { ?>
+			<div class="update-nag">
+				<p><?php _e( 'The Advanced Custom Fields Coder plugin has been activated. All field information will be saved to a file, and not in the database.' ); ?>
+			</div>
+	<?php }
 	}
 
 	/**
@@ -282,6 +285,7 @@ class ACF_Field_Coder_Admin {
 	 * 
 	 * Write an acf post to the database for each field registered programmatically, if one doesn't already exist.
 	 * This is needed to be able to use the admin interface for editing field groups
+	 * Also sets the property $field_group_post_ids for this class
 	 *
 	 * @since  1.0.0
 	 * @return void
@@ -291,14 +295,15 @@ class ACF_Field_Coder_Admin {
 		
 		// Get all of the current acf fields stored in the database
 		$db_field_groups = get_posts( array(
-			'numberposts' 	=> -1,
-			'post_type' 	=> 'acf',
-			'orderby' 		=> 'menu_order title',
-			'order' 		=> 'asc',
-			'suppress_filters' => false,
+			'numberposts'      => -1,
+			'post_type'        => 'acf',
+			'post_status'      => array('publish', 'pending', 'draft', 'future', 'private', 'trash'),
+			'orderby'          => 'menu_order title',
+			'order'            => 'asc',
+			// 'suppress_filters' => false,
 		));
 		if ( $db_field_groups ) {
-			foreach( $db_field_groups as $db_field_group ) {
+			foreach ( $db_field_groups as $db_field_group ) {
 				$db_field_group_names[$db_field_group->post_name] = $db_field_group->ID;
 			} // endforeach
 		} // endif
@@ -309,11 +314,12 @@ class ACF_Field_Coder_Admin {
 				$this->field_group_post_ids[$db_field_group_names[$coded_field_group['id']]] = $coded_field_group['id'];
 			} else {
 				$new_id = wp_insert_post( array(
-					'post_title' => $coded_field_group['title'],
-					'post_status' => 'publish',
+					'post_title'     => $coded_field_group['title'],
+					'post_status'    => 'publish',
+					'ping_status'    => 'closed',
 					'comment_status' => 'closed',
-					'post_name' => $coded_field_group['id'],
-					'post_type' => 'acf',
+					'post_name'      => $coded_field_group['id'],
+					'post_type'      => 'acf',
 				));
 				$this->field_group_post_ids[$new_id] = $coded_field_group['id'];
 			} // endif
@@ -327,9 +333,11 @@ class ACF_Field_Coder_Admin {
 	 *
 	 * @param [type] $post_id [description]
 	 */
-	public function add_placeholder_meta( $post_id ) {
-		global $post_type;
-		if ( 'acf' === $post_type && in_array($post_id, $this->field_group_post_ids, true) ) {
+	public function add_placeholder_meta( $post_id, $post, $update ) {
+		log_me($post_id);
+		log_me($post);
+		log_me($update);
+		if ( 'acf' === $post->post_type ) {
 			update_post_meta( $post_id = $post_id, $meta_key = 'acf_field_coder_placeholder', $meta_value = 1 );
 		}
 	}
@@ -429,7 +437,7 @@ class ACF_Field_Coder_Admin {
 
 			unset( $_POST['options'] );
 
-			$this->update_php_file($field_group);
+			$this->update_php_file( $field_group );
 		}
 	}
 
@@ -442,41 +450,53 @@ class ACF_Field_Coder_Admin {
 	 * @param  string $code [description]
 	 * @return [type]       [description]
 	 */
-	public function update_php_file( $field_group ) {
+	public function update_php_file( $field_group = array(), $delete = false ) {
 		global $parser;
 		global $traverser;
 		global $prettyPrinter;
 
 		$acf_file = fopen( $this->acf_file_path, 'r+b');
-		$code = fread( $acf_file, filesize($this->acf_file_path) );
-
-		// Set the file pointer back to the beginning
-		rewind($acf_file);
+		if ( flock($acf_file, LOCK_SH) ) {
+			$code = fread( $acf_file, filesize($this->acf_file_path) );
+			// Set the file pointer back to the beginning
+			rewind( $acf_file );
+			flock( $acf_file, LOCK_UN );
+		} else {
+			error_log( "ACF field file not readable" );
+		}
 
 		$new_field_code = $this->generate_field_php($field_group);
 
 		if ( $this->get_coded_field_group($field_group['id']) ) {
-			// parse the field and replace the node with an updated register_field_group function call
-			try {
-				// parse
-				$stmts = $parser->parse($code);
-
-				// Set up to traverse the node structure and update with the new settings
-				$traverser->addVisitor( new ACF_Node_Visitor($field_group['id'], $parser->parse($new_field_code)) );
-				// traverse and update node
-				$stmts = $traverser->traverse($stmts);
-
-				// pretty print
-				$code = $prettyPrinter->prettyPrint($stmts);
-			} catch (PhpParser\Error $e) {
-				echo 'Parse Error: ', $e->getMessage();
-			}
+			$field_key = $field_group['id'];
 		} else {
-			// Just append the new field
-			$code .= $new_field_code;
+			$field_key = 'new';
 		}
 
-		fwrite( $acf_file, $code );
+		try {
+			// parse
+			$stmts = $parser->parse($code);
+
+			// Set up to traverse the node structure and update with the new settings
+			$traverser->addVisitor( new ACF_Node_Visitor($field_key, $parser->parse($new_field_code), $delete) );
+			// traverse and update node
+			$stmts = $traverser->traverse($stmts);
+
+			// pretty print
+			$code = $prettyPrinter->prettyPrintFile($stmts);
+
+		} catch (PhpParser\Error $e) {
+			error_log( 'Parse Error: ', $e->getMessage() );
+		}
+
+		if( flock($acf_file, LOCK_EX) ) {
+			ftruncate($acf_file, 0);
+			fwrite( $acf_file, $code );
+			fflush( $acf_file );
+			flock( $acf_file, LOCK_UN );
+		} else {
+			error_log( "Unable to write to file." );
+		}
 		fclose( $acf_file );
 	}
 
@@ -495,20 +515,29 @@ class ACF_Field_Coder_Admin {
 
 		// create written code
 		$php_field_code = var_export($field_group, true);
-		
-		// change double spaces to tabs
-		$php_field_code = str_replace("  ", "\t", $php_field_code);
-		
-		// correctly formats "=> array("
-		$php_field_code = preg_replace('/([\t\r\n]+?)array/', 'array', $php_field_code);
-		
+
 		// Remove number keys from array
 		$php_field_code = preg_replace('/[0-9]+ => array/', 'array', $php_field_code);
-		
-		// add extra tab at start of each line
-		$php_field_code = str_replace("\n", "\n\t", $php_field_code);
 
-		return 'register_field_group(' . $php_field_code . ');';
+		return "<?php register_field_group( " . $php_field_code . ");";
+	}
+
+	/**
+	 * [delete_acf_post description]
+	 * @param  [type] $postid [description]
+	 * @return [type]         [description]
+	 */
+	function delete_acf_post( $postid ) {
+		global $post_type;
+
+		if ( 'acf' === $post_type ) {
+			$field_name = get_post_field( 'post_name', $postid, 'raw' );
+			if ( $this->get_coded_field_group( $field_name ) ) {
+				// Provide a field_group array, just as if we were creating or updating a field group
+				$field_group['id'] = $field_name;
+				$this->update_php_file( $field_group, $delete = true );
+			}
+		}
 	}
 
 } // end of class

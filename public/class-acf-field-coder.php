@@ -77,6 +77,8 @@ class ACF_Field_Coder {
 		$this->acf_file_path = ACF_FIELD_CODE_PLUGIN_DIR . 'includes/acf-fields.php';
 		add_action( 'init', array( $this, 'include_acf_fields' ) );
 
+		add_action( 'pre_get_posts', array( $this, 'hide_non_coded_posts') );
+
 	}
 
 	/**
@@ -267,7 +269,7 @@ class ACF_Field_Coder {
 		$placeholder_posts = get_posts( array(
 			'posts_per_page' => -1,
 			'post_type' => 'acf',
-			'post_status' => 'any',
+			'post_status' => array('publish', 'pending', 'draft', 'future', 'private', 'trash'),
 			'meta_key' => 'acf_field_coder_placeholder',
 			'meta_value' => 1,
 		));
@@ -302,6 +304,14 @@ class ACF_Field_Coder {
 	public function include_acf_fields() {
 		if ( file_exists($this->acf_file_path) ) {
 			require_once( $this->acf_file_path );
+		}
+	}
+
+	public function hide_non_coded_posts( $query ) {
+		ChromePhp::log($query);
+		if ( 'acf' === $query->query['post_type'] ) {
+			$query->set( 'meta_key', 'acf_field_coder_placeholder' );
+			$query->set( 'meta_value', 1 );
 		}
 	}
 

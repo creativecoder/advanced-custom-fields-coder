@@ -37,7 +37,7 @@ define( 'ACF_FIELD_CODE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
  * Debugging
  *----------------------------------------------------------------------------*/
 
-if ( 1 == WP_LOCAL_SERVER ) {
+if ( 'local' === WP_ENV ) {
 	require_once( 'includes/ChromePHP.php');
 	ob_start();
 
