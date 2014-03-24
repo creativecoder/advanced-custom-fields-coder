@@ -308,7 +308,6 @@ class ACF_Field_Coder {
 	}
 
 	public function hide_non_coded_posts( $query ) {
-		ChromePhp::log($query);
 		if ( 'acf' === $query->query['post_type'] ) {
 			$query->set( 'meta_key', 'acf_field_coder_placeholder' );
 			$query->set( 'meta_value', 1 );
